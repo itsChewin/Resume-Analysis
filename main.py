@@ -1,8 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from google import genai
 from google.genai import types
 import os
 import tempfile
+import time
 import json
 from dotenv import load_dotenv
 
@@ -16,15 +17,24 @@ async def analyze_resume_api(
     file: UploadFile = File(...)
 ):
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+    temp_path = None
     
-    # Save Temp
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(await file.read())
-        temp_path = tmp.name
-
     try:
-        # Upload & Process
+        # Save Temp
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(await file.read())
+            temp_path = tmp.name
+
+        # Upload to Gemini File API
         file_upload = client.files.upload(file=temp_path)
+        
+        # CRITICAL BACKEND FIX: Wait for File API compilation state
+        while file_upload.state.name == "PROCESSING":
+            time.sleep(1)
+            file_upload = client.files.get(name=file_upload.name)
+            
+        if file_upload.state.name == "FAILED":
+            raise HTTPException(status_code=422, detail="Gemini File API processing failed.")
         
         prompt = f"""
         Act as an Expert Technical Recruiter.
@@ -56,13 +66,16 @@ async def analyze_resume_api(
         """
         
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model="gemini-2.5-flash",
             contents=[file_upload, prompt],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         return json.loads(response.text)
         
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
     finally:
-        os.remove(temp_path)
-
-# Run with: uvicorn main_api:app --reload
+        # Ensure cleanup runs even on processing errors
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)

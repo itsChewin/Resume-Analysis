@@ -64,8 +64,9 @@ def analyze_resume(file_bytes, job_desc):
         }}
         """
 
+        # UPGRADE: Switched from legacy "gemini-flash-latest" to modern "gemini-2.5-flash"
         response = client.models.generate_content(
-            model="gemini-flash-latest", 
+            model="gemini-2.5-flash", 
             contents=[file_upload, prompt_text],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json"
@@ -143,10 +144,10 @@ if process_btn and job_description and uploaded_files:
         # Show Table
         st.subheader("Results Summary")
         
-        # Apply highlighting
+        # BUG FIX: Switched from .applymap to .map to support Pandas 2.2+
         st.dataframe(
             df[["Candidate Name", "Total Score", "Skills Score", "Summary"]]
-            .style.applymap(highlight_score, subset=['Total Score', 'Skills Score']),
+            .style.map(highlight_score, subset=['Total Score', 'Skills Score']),
             use_container_width=True
         )
 
